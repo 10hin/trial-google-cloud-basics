@@ -43,11 +43,12 @@ variable "state_bucket" {
   default = "trial-gc-basics-dev-state"
 }
 
-resource "google_project_service" "pipeline" {
-  for_each = toset(["cloudbuild.googleapis.com", "secretmanager.googleapis.com"])
+removed {
+  from = google_project_service.pipeline
 
-  service            = each.value
-  disable_on_destroy = false
+  lifecycle {
+    destroy = false
+  }
 }
 
 resource "google_service_account" "plan" {
@@ -69,14 +70,25 @@ resource "google_storage_bucket_iam_member" "plan" {
   member = google_service_account.plan.member
 }
 
+resource "google_project_iam_custom_role" "state_bucket_iam_reader" {
+  project     = var.project_id
+  role_id     = "terraformPrPlanStateBucketIamReader"
+  title       = "Terraform PR plan state bucket IAM reader"
+  permissions = ["storage.buckets.getIamPolicy"]
+}
+
+resource "google_storage_bucket_iam_member" "plan_iam_reader" {
+  bucket = var.state_bucket
+  role   = google_project_iam_custom_role.state_bucket_iam_reader.name
+  member = google_service_account.plan.member
+}
+
 resource "google_secret_manager_secret" "github_token" {
   secret_id = "terraform-pr-plan-github-token"
 
   replication {
     auto {}
   }
-
-  depends_on = [google_project_service.pipeline]
 }
 
 resource "google_secret_manager_secret_iam_member" "github_token" {
@@ -108,9 +120,9 @@ resource "google_cloudbuild_trigger" "plan" {
   }
 
   depends_on = [
-    google_project_service.pipeline,
     google_project_iam_member.plan,
     google_storage_bucket_iam_member.plan,
+    google_storage_bucket_iam_member.plan_iam_reader,
     google_secret_manager_secret_iam_member.github_token,
   ]
 }

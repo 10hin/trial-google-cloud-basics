@@ -21,6 +21,38 @@ resource "google_project" "prod" {
   billing_account = data.google_billing_account.main.id
 }
 
+locals {
+  project_services = toset([
+    "cloudbuild.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
+    "secretmanager.googleapis.com",
+  ])
+}
+
+resource "google_project_service" "dev" {
+  for_each = local.project_services
+
+  project            = google_project.dev.project_id
+  service            = each.value
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "test" {
+  for_each = local.project_services
+
+  project            = google_project.test.project_id
+  service            = each.value
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "prod" {
+  for_each = local.project_services
+
+  project            = google_project.prod.project_id
+  service            = each.value
+  disable_on_destroy = false
+}
+
 resource "google_storage_bucket" "dev_state" {
   name                     = "trial-gc-basics-dev-state"
   location                 = "ASIA-NORTHEAST1"
