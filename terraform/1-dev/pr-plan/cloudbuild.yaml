@@ -20,10 +20,14 @@ steps:
       - BUILD_ID=$BUILD_ID
       - PLAN_ARTIFACT_DIRECTORY=/workspace/.terraform-pr-plans-$BUILD_ID
     secretEnv: ["GITHUB_TOKEN"]
-  - name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+  - name: python:3.13-bookworm
     id: publish-terraform-plans
-    entrypoint: python3
-    args: ["-u", "terraform/1-dev/pr-plan/artifacts.py", "/workspace/.terraform-pr-plans-$BUILD_ID"]
+    entrypoint: /bin/sh
+    args:
+      - -ec
+      - |
+        echo "Starting Terraform plan artifact publisher"
+        exec python -u terraform/1-dev/pr-plan/artifacts.py "/workspace/.terraform-pr-plans-$BUILD_ID"
     env:
       - TF_STATE_BUCKET=${_TF_STATE_BUCKET}
       - GITHUB_REPOSITORY=${_GITHUB_REPOSITORY}

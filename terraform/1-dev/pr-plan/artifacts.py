@@ -30,10 +30,26 @@ def digest(path):
         return file_digest(stream, "sha256").hexdigest()
 
 
+def build_access_token():
+    request = urllib.request.Request(
+        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+        headers={"Metadata-Flavor": "Google"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            token = json.load(response)["access_token"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise RuntimeError(f"Could not obtain Cloud Build service account token: {error}") from error
+    if not isinstance(token, str) or not token:
+        raise RuntimeError("Cloud Build metadata server returned an empty or invalid access token")
+    return token
+
+
 class Storage:
-    def __init__(self, bucket):
+    def __init__(self, bucket, token=None):
         self.bucket = urllib.parse.quote(bucket, safe="")
-        token = subprocess.check_output(["gcloud", "auth", "print-access-token"], text=True).strip()
+        if token is None:
+            token = subprocess.check_output(["gcloud", "auth", "print-access-token"], text=True).strip()
         self.headers = {"Authorization": f"Bearer {token}"}
 
     def upload(self, name, path):
@@ -63,7 +79,7 @@ def publish(directory):
     manifest_path = directory / "index.json"
     manifest = json.loads(manifest_path.read_bytes())
     prefix = artifact_prefix(manifest["number"], manifest["head"])
-    storage = Storage(os.environ["TF_STATE_BUCKET"])
+    storage = Storage(os.environ["TF_STATE_BUCKET"], token=build_access_token())
     for root in manifest["plans"]:
         local_plan = directory / root / "terraform.tfplan"
         manifest["plans"][root] = digest(local_plan)
@@ -84,8 +100,6 @@ def main(directory):
     except Exception as error:
         if isinstance(error, urllib.error.HTTPError):
             detail = f"Cloud Storage HTTP {error.code} ({error.reason})"
-        elif isinstance(error, subprocess.CalledProcessError):
-            detail = f"gcloud auth print-access-token exited with status {error.returncode}"
         else:
             detail = f"{type(error).__name__}: {error}"
         print(f"Saved Terraform plan upload failed: {detail}", file=sys.stderr, flush=True)
