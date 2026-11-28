@@ -1,13 +1,3 @@
-variable "github_repository_id" {
-  type    = string
-  default = "1465617894"
-
-  validation {
-    condition     = can(regex("^[0-9]+$", var.github_repository_id))
-    error_message = "Specify the numeric GitHub repository ID."
-  }
-}
-
 variable "apply_project_roles" {
   description = "Project roles required by the roots managed by this CI."
   type        = set(string)
@@ -20,7 +10,7 @@ resource "google_service_account" "apply" {
 }
 
 resource "google_project_iam_member" "apply" {
-  for_each = var.apply_project_roles
+  for_each = setunion(var.apply_project_roles, toset(["roles/logging.logWriter"]))
 
   project = var.project_id
   role    = each.value
@@ -33,39 +23,38 @@ resource "google_storage_bucket_iam_member" "apply" {
   member = google_service_account.apply.member
 }
 
-resource "google_iam_workload_identity_pool" "github" {
-  workload_identity_pool_id = "terraform-pr-apply"
+resource "google_secret_manager_secret_iam_member" "apply_github_token" {
+  secret_id = google_secret_manager_secret.github_token.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = google_service_account.apply.member
 }
 
-resource "google_iam_workload_identity_pool_provider" "github" {
-  workload_identity_pool_id          = google_iam_workload_identity_pool.github.workload_identity_pool_id
-  workload_identity_pool_provider_id = "github"
+resource "google_cloudbuild_trigger" "apply" {
+  name            = "terraform-pr-apply"
+  location        = "global"
+  service_account = google_service_account.apply.id
+  filename        = "terraform/1-dev/pr-plan/cloudbuild-apply.yaml"
 
-  attribute_mapping = {
-    "google.subject"          = "assertion.sub"
-    "attribute.repository_id" = "assertion.repository_id"
+  github {
+    owner = split("/", var.github_repository)[0]
+    name  = split("/", var.github_repository)[1]
+
+    push {
+      branch = var.base_branch_pattern
+    }
   }
 
-  attribute_condition = <<-CEL
-    assertion.repository_id == '${var.github_repository_id}' &&
-    assertion.event_name == 'pull_request_target' &&
-    assertion.ref == 'refs/heads/main' &&
-    assertion.workflow_ref == assertion.repository + '/.github/workflows/pr-apply.yml@refs/heads/main'
-  CEL
-
-  oidc {
-    issuer_uri = "https://token.actions.githubusercontent.com"
+  substitutions = {
+    _GITHUB_REPOSITORY = var.github_repository
+    _TF_PROJECT        = var.project_id
+    _TF_STATE_BUCKET   = var.state_bucket
   }
-}
 
-resource "google_service_account_iam_member" "github" {
-  service_account_id = google_service_account.apply.name
-  role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository_id/${var.github_repository_id}"
-}
-
-output "workload_identity_provider" {
-  value = google_iam_workload_identity_pool_provider.github.name
+  depends_on = [
+    google_project_iam_member.apply,
+    google_storage_bucket_iam_member.apply,
+    google_secret_manager_secret_iam_member.apply_github_token,
+  ]
 }
 
 output "service_account_email" {

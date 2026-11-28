@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -46,10 +45,9 @@ def build_access_token():
 
 
 class Storage:
-    def __init__(self, bucket, token=None):
+    def __init__(self, bucket):
         self.bucket = urllib.parse.quote(bucket, safe="")
-        if token is None:
-            token = subprocess.check_output(["gcloud", "auth", "print-access-token"], text=True).strip()
+        token = build_access_token()
         self.headers = {"Authorization": f"Bearer {token}"}
 
     def upload(self, name, path):
@@ -79,7 +77,7 @@ def publish(directory):
     manifest_path = directory / "index.json"
     manifest = json.loads(manifest_path.read_bytes())
     prefix = artifact_prefix(manifest["number"], manifest["head"])
-    storage = Storage(os.environ["TF_STATE_BUCKET"], token=build_access_token())
+    storage = Storage(os.environ["TF_STATE_BUCKET"])
     for root in manifest["plans"]:
         local_plan = directory / root / "terraform.tfplan"
         manifest["plans"][root] = digest(local_plan)

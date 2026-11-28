@@ -4,24 +4,17 @@ Cloud Build が `main` 宛ての PR の作成・更新を検知します。リ�
 
 ## 導入
 
-1. 管理者の認証で `terraform/0-terraform-backends` を適用し、dev・test・prod のプロジェクトと state バケットを作成して、Cloud Build、Cloud Resource Manager、Secret Manager、IAM、Service Account Credentials、Security Token Service の API を有効にします。
+1. 管理者の認証で `terraform/0-terraform-backends` を適用し、dev・test・prod のプロジェクトと state バケットを作成して、Cloud Build、Cloud Resource Manager、Secret Manager、IAM API を有効にします。
 2. Cloud Build で GitHub リポジトリを第 1 世代の GitHub App 接続として登録します。既定の対象は `10hin/trial-google-cloud-basics` の `main` です。
 3. `terraform -chdir=terraform/1-dev/pr-plan init` と `terraform -chdir=terraform/1-dev/pr-plan apply` を実行します。`github_repository_id` の既定値はこのリポジトリの数値 ID（`1465617894`）です。`apply_project_roles` の既定値は空集合です。自動適用に必要なプロジェクトロールは、このルートの `terraform.tfvars` に指定します。別の state バケットを使う場合は、初期化時に `-backend-config=bucket=...` を渡し、`state_bucket` にも同じ値を指定します。
 4. 対象リポジトリに限定した GitHub の fine-grained PAT を作成します。リポジトリ権限は **Contents: Read-only** と **Pull requests: Read and write** を指定し、Secret Manager の `terraform-pr-plan-github-token` に有効なシークレットバージョンとして登録します。[GitHub のコメント投稿 API](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment)
-5. GitHub のリポジトリ設定で Actions の変数を登録します。
+5. 後続の PR の対象コミットをレビューし、plan ビルドの成功を確認してからマージします。マージ後は Cloud Build の `terraform-pr-apply` の結果を確認します。
 
-   | 変数 | 値 |
-   | --- | --- |
-   | `TF_APPLY_PROJECT` | `project_id`（既定値 `trial-gc-basics-dev`） |
-   | `TF_APPLY_STATE_BUCKET` | `state_bucket`（既定値 `trial-gc-basics-dev-state`） |
-   | `TF_APPLY_WORKLOAD_IDENTITY_PROVIDER` | Terraform 出力 `workload_identity_provider` |
-   | `TF_APPLY_SERVICE_ACCOUNT` | Terraform 出力 `service_account_email` |
-
-6. 後続の PR の対象コミットをレビューし、plan ビルドの成功を確認してからマージします。マージ後は GitHub Actions の結果を確認します。
+既存環境を移行するときは、移行用 PR の内容を管理者の認証で Terraform apply し、`terraform-pr-apply` トリガーを登録します。この適用で、旧 GitHub Actions 用の Workload Identity Federation リソースも削除します。トリガー登録後に発生した push が自動実行の対象です。
 
 plan と apply の CI リソースは、既存の GCS state プレフィックス `1-dev` を使います。旧構成で `google_project_service.pipeline` を管理していた場合、バックエンドルートが API を管理下に取り込み、このルートの `removed` ブロックが旧リソースを state から外します。すでに旧 `1-dev/pr-apply` state にリソースを作成している場合は、適用前にそのリソースの state を既存の `1-dev` state に移してください。Terraform リソースのアドレスは同じです。
 
-plan と apply は専用サービスアカウントを個別に使います。plan は state を読み取り、ロックを取得せずに実行します。apply は Workload Identity Federation で短期認証します。このルートを自動適用するには、apply 用サービスアカウントに Cloud Build トリガー、IAM、Workload Identity Federation、state バケット IAM、Secret Manager を管理する権限が必要です。plan 用サービスアカウントに対する `iam.serviceAccounts.actAs` と、対象バケットの IAM 管理権限は、管理者がリソース単位で付与できます。[Google Cloud の Workload Identity Federation](https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines)
+plan と apply は専用サービスアカウントを個別に使います。plan は state を読み取り、ロックを取得せずに実行します。apply は Cloud Build の apply 用サービスアカウントで認証します。このルートを自動適用するには、apply 用サービスアカウントに Cloud Build トリガー、IAM、state バケット IAM、Secret Manager を管理する権限が必要です。トリガーが使うサービスアカウントに対する `iam.serviceAccounts.actAs` と、対象バケットの IAM 管理権限は、管理者がリソース単位で付与できます。[Google Cloud の Workload Identity Federation](https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines)
 
 ## ルートモジュールの登録
 
@@ -37,6 +30,6 @@ plan と apply は専用サービスアカウントを個別に使います。pl
 
 ## PR マージ後の apply
 
-GitHub Actions は `main` 宛ての PR がマージされると、そのマージ結果をチェックアウトします。同じ PR 番号と head SHA の保存済み plan を取得し、Terraform が差分ありと判定した保存済み plan をすべて依存順に `terraform apply <planファイル>` で適用します。差分のある plan がなければ適用をスキップします。[GitHub Actions のイベント](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request_target)
+Cloud Build の apply トリガーは `main` への push で起動します。GitHub API で push 先のブランチとコミットが一致するマージ済み PR を特定します。該当する PR がなければ apply をスキップします。同じ PR 番号と head SHA の保存済み plan を取得し、Terraform が差分ありと判定した保存済み plan をすべて依存順に `terraform apply <planファイル>` で適用します。差分のある plan がなければ適用をスキップします。[コミットに関連する PR の取得](https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit)
 
 マージ前に PR のブランチを `main` に追従させ、最新の head の Cloud Build が成功したことを確認してください。差分情報が記録される前の索引を使っている場合は、マージ前に plan を再実行してください。plan を取得できない場合、マージ結果のファイルツリーが plan 時点と異なる場合、Terraform が state の変更により plan を古いと判定した場合は停止します。複数ルートの適用中に失敗した場合、先に成功したルートの変更は適用済みです。

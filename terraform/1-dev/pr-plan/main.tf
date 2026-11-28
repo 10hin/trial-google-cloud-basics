@@ -133,7 +133,6 @@ resource "google_cloudbuild_trigger" "plan" {
     _TF_PROJECT              = var.project_id
     _TF_STATE_BUCKET         = var.state_bucket
     _BASE_BRANCH_PATTERN_B64 = base64encode(var.base_branch_pattern)
-    _GITHUB_REPOSITORY_ID    = var.github_repository_id
     _APPLY_PROJECT_ROLES     = jsonencode(sort(tolist(var.apply_project_roles)))
   }
 
