@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from hashlib import file_digest
@@ -72,5 +73,35 @@ def publish(directory):
     storage.upload(f"{prefix}/index.json", manifest_path)
 
 
+def main(directory):
+    from plan import post_comment
+
+    token = os.environ.pop("GITHUB_TOKEN")
+    build = os.environ["BUILD_ID"]
+    print(f"Publishing saved Terraform plans for Cloud Build {build}", flush=True)
+    try:
+        publish(directory)
+    except Exception as error:
+        if isinstance(error, urllib.error.HTTPError):
+            detail = f"Cloud Storage HTTP {error.code} ({error.reason})"
+        elif isinstance(error, subprocess.CalledProcessError):
+            detail = f"gcloud auth print-access-token exited with status {error.returncode}"
+        else:
+            detail = f"{type(error).__name__}: {error}"
+        print(f"Saved Terraform plan upload failed: {detail}", file=sys.stderr, flush=True)
+        body = (
+            f"## Terraform plan の保存に失敗しました\n\n"
+            f"Cloud Build `{build}`\n\n"
+            f"{detail}"
+        )
+        try:
+            post_comment(os.environ["GITHUB_REPOSITORY"], int(os.environ["PR_NUMBER"]), token, body)
+        except Exception as comment_error:
+            print(f"Could not post the failure comment: {comment_error}", file=sys.stderr, flush=True)
+        return 1
+    print("Saved Terraform plans uploaded", flush=True)
+    return 0
+
+
 if __name__ == "__main__":
-    publish(Path(sys.argv[1]))
+    sys.exit(main(Path(sys.argv[1])))
