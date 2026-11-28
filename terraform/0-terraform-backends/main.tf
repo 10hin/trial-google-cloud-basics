@@ -23,6 +23,7 @@ resource "google_project" "prod" {
 
 locals {
   project_services = toset([
+    "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "secretmanager.googleapis.com",
