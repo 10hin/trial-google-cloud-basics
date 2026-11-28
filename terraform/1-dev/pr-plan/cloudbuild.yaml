@@ -13,7 +13,6 @@ steps:
       - TF_VAR_state_bucket=${_TF_STATE_BUCKET}
       - TF_VAR_github_repository=${_GITHUB_REPOSITORY}
       - BASE_BRANCH_PATTERN_B64=${_BASE_BRANCH_PATTERN_B64}
-      - TF_VAR_github_repository_id=${_GITHUB_REPOSITORY_ID}
       - TF_VAR_apply_project_roles=${_APPLY_PROJECT_ROLES}
       - TF_STATE_BUCKET=${_TF_STATE_BUCKET}
       - TERRAFORM=/workspace/terraform-bin

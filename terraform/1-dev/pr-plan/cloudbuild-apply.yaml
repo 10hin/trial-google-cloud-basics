@@ -1,0 +1,24 @@
+steps:
+  - name: hashicorp/terraform:1.11.2
+    entrypoint: /bin/sh
+    args: ["-ec", "cp /bin/terraform /workspace/terraform-bin"]
+  - name: python:3.13-bookworm
+    id: apply-terraform-plans
+    entrypoint: python
+    args: ["-u", "-B", "terraform/1-dev/pr-plan/apply.py"]
+    env:
+      - GITHUB_REPOSITORY=${_GITHUB_REPOSITORY}
+      - MERGE_COMMIT=$COMMIT_SHA
+      - BASE_BRANCH=$BRANCH_NAME
+      - GOOGLE_PROJECT=${_TF_PROJECT}
+      - TF_STATE_BUCKET=${_TF_STATE_BUCKET}
+      - TF_IN_AUTOMATION=1
+      - TERRAFORM=/workspace/terraform-bin
+    secretEnv: ["GITHUB_TOKEN"]
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/terraform-pr-plan-github-token/versions/latest
+      env: GITHUB_TOKEN
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s
