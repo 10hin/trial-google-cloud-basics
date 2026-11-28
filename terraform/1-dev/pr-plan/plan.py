@@ -78,9 +78,14 @@ def run_terraform(root, settings, plan_file):
         "GOOGLE_PROJECT": os.environ["TF_PROJECT"],
         "TF_VAR_project_id": os.environ["TF_PROJECT"],
     }
-    if "BASE_BRANCH_PATTERN_B64" in env:
+    # Triggers created before these substitutions were added can pass empty values.
+    for name in ("TF_VAR_github_repository_id", "TF_VAR_apply_project_roles"):
+        if env.get(name) == "":
+            del env[name]
+    branch_pattern = env.pop("BASE_BRANCH_PATTERN_B64", "")
+    if branch_pattern:
         env["TF_VAR_base_branch_pattern"] = base64.b64decode(
-            env.pop("BASE_BRANCH_PATTERN_B64"), validate=True
+            branch_pattern, validate=True
         ).decode()
     command = [os.environ["TERRAFORM"], f"-chdir={directory}"]
     init = ["init", "-input=false", "-no-color"]
