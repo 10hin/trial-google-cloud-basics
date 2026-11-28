@@ -25,7 +25,10 @@ locals {
   project_services = toset([
     "cloudbuild.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
     "secretmanager.googleapis.com",
+    "sts.googleapis.com",
   ])
 }
 
@@ -54,10 +57,11 @@ resource "google_project_service" "prod" {
 }
 
 resource "google_storage_bucket" "dev_state" {
-  name                     = "trial-gc-basics-dev-state"
-  location                 = "ASIA-NORTHEAST1"
-  project                  = google_project.dev.project_id
-  public_access_prevention = "enforced"
+  name                        = "trial-gc-basics-dev-state"
+  location                    = "ASIA-NORTHEAST1"
+  project                     = google_project.dev.project_id
+  public_access_prevention    = "enforced"
+  uniform_bucket_level_access = true
 }
 
 resource "google_storage_bucket" "test_state" {

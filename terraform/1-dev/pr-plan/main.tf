@@ -57,7 +57,7 @@ resource "google_service_account" "plan" {
 }
 
 resource "google_project_iam_member" "plan" {
-  for_each = toset(["roles/logging.logWriter", "roles/viewer"])
+  for_each = toset(["roles/iam.viewer", "roles/logging.logWriter", "roles/viewer"])
 
   project = var.project_id
   role    = each.value
@@ -68,6 +68,17 @@ resource "google_storage_bucket_iam_member" "plan" {
   bucket = var.state_bucket
   role   = "roles/storage.objectViewer"
   member = google_service_account.plan.member
+}
+
+resource "google_storage_bucket_iam_member" "plan_artifacts" {
+  bucket = var.state_bucket
+  role   = "roles/storage.objectUser"
+  member = google_service_account.plan.member
+
+  condition {
+    title      = "terraform-pr-plan-artifacts"
+    expression = "resource.name.startsWith('projects/_/buckets/${var.state_bucket}/objects/pr-plans/')"
+  }
 }
 
 resource "google_project_iam_custom_role" "state_bucket_iam_reader" {
@@ -113,16 +124,24 @@ resource "google_cloudbuild_trigger" "plan" {
     }
   }
 
+  approval_config {
+    approval_required = false
+  }
+
   substitutions = {
-    _GITHUB_REPOSITORY = var.github_repository
-    _TF_PROJECT        = var.project_id
-    _TF_STATE_BUCKET   = var.state_bucket
+    _GITHUB_REPOSITORY       = var.github_repository
+    _TF_PROJECT              = var.project_id
+    _TF_STATE_BUCKET         = var.state_bucket
+    _BASE_BRANCH_PATTERN_B64 = base64encode(var.base_branch_pattern)
+    _GITHUB_REPOSITORY_ID    = var.github_repository_id
+    _APPLY_PROJECT_ROLES     = jsonencode(sort(tolist(var.apply_project_roles)))
   }
 
   depends_on = [
     google_project_iam_member.plan,
     google_storage_bucket_iam_member.plan,
     google_storage_bucket_iam_member.plan_iam_reader,
+    google_storage_bucket_iam_member.plan_artifacts,
     google_secret_manager_secret_iam_member.github_token,
   ]
 }

@@ -64,13 +64,13 @@ def post_comment(repository, number, token, body):
         pass
 
 
-def run_terraform(root, settings):
+def run_terraform(root, settings, plan_file):
     directory = Path(root).resolve()
     dev_directory = Path.cwd() / DEV_DIRECTORY
     if directory == dev_directory or not directory.is_relative_to(dev_directory) or not (
         list(directory.glob("*.tf")) or list(directory.glob("*.tf.json"))
     ):
-        return "対象パスに Terraform 構成がありません。", True
+        return "対象パスに Terraform 構成がありません。", 1
 
     env = {
         **os.environ,
@@ -78,6 +78,15 @@ def run_terraform(root, settings):
         "GOOGLE_PROJECT": os.environ["TF_PROJECT"],
         "TF_VAR_project_id": os.environ["TF_PROJECT"],
     }
+    # Triggers created before these substitutions were added can pass empty values.
+    for name in ("TF_VAR_github_repository_id", "TF_VAR_apply_project_roles"):
+        if env.get(name) == "":
+            del env[name]
+    branch_pattern = env.pop("BASE_BRANCH_PATTERN_B64", "")
+    if branch_pattern:
+        env["TF_VAR_base_branch_pattern"] = base64.b64decode(
+            branch_pattern, validate=True
+        ).decode()
     command = [os.environ["TERRAFORM"], f"-chdir={directory}"]
     init = ["init", "-input=false", "-no-color"]
     if settings.get("gcs_backend"):
@@ -87,13 +96,17 @@ def run_terraform(root, settings):
         command + init, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
     if result.returncode:
-        return result.stdout.decode(errors="replace"), True
+        return result.stdout.decode(errors="replace"), 1
 
+    plan_file.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
-        command + ["plan", "-input=false", "-no-color", "-lock=false", "-detailed-exitcode"],
+        command + [
+            "plan", "-input=false", "-no-color", "-lock=false", "-detailed-exitcode",
+            f"-out={plan_file}",
+        ],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
-    return result.stdout.decode(errors="replace"), result.returncode not in (0, 2)
+    return result.stdout.decode(errors="replace"), result.returncode
 
 
 def main():
@@ -120,6 +133,19 @@ def main():
     )
     base = git("merge-base", "refs/terraform-plan/base", "HEAD").decode().strip()
     head = git("rev-parse", "HEAD").decode().strip()
+    if git("rev-parse", "refs/terraform-plan/head").decode().strip() != head:
+        raise ValueError("The build checkout does not match the current PR head")
+    artifact_directory = Path(os.environ["PLAN_ARTIFACT_DIRECTORY"]).resolve()
+    artifact_directory.mkdir()
+    manifest = {
+        "number": number,
+        "head": head,
+        "tree": git("rev-parse", "HEAD^{tree}").decode().strip(),
+        "project": os.environ["TF_PROJECT"],
+        "build": os.environ["BUILD_ID"],
+        "plans": {},
+        "changed_roots": [],
+    }
     files = os.fsdecode(git("diff", "--no-renames", "--name-only", "-z", base, head)).split("\0")
     files = [path for path in files if path]
     roots = load_roots(Path(MANIFEST).read_bytes())
@@ -134,7 +160,13 @@ def main():
     for root in sorted(removed):
         sections.append(f"旧ルート `{root}` は定義から削除されています。状態の扱いは別途確認してください。")
     for root in ordered_roots(roots, selected):
-        output, error = run_terraform(root, roots[root])
+        plan_file = artifact_directory / root / "terraform.tfplan"
+        output, exit_code = run_terraform(root, roots[root], plan_file)
+        error = exit_code not in (0, 2)
+        if not error:
+            manifest["plans"][root] = None
+        if exit_code == 2:
+            manifest["changed_roots"].append(root)
         failed |= error
         output = output.replace("\x00", "")
         print(f"Terraform {root}: {'failed' if error else 'completed'}", flush=True)
@@ -157,6 +189,8 @@ def main():
     else:
         for section in sections[1:]:
             post_comment(repository, number, token, f"{sections[0]}\n\n{section}")
+    if not failed:
+        (artifact_directory / "index.json").write_text(json.dumps(manifest))
     return int(failed)
 
 
