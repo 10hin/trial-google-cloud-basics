@@ -81,6 +81,29 @@ resource "google_storage_bucket_iam_member" "plan_artifacts" {
   }
 }
 
+moved {
+  from = google_storage_bucket_iam_member.artifact_repositories_state_init
+  to   = google_storage_bucket_iam_member.plan_state_init
+}
+
+resource "google_storage_bucket_iam_member" "plan_state_init" {
+  bucket = var.state_bucket
+  role   = "roles/storage.objectUser"
+  member = google_service_account.plan.member
+
+  condition {
+    title = "terraform-pr-plan-dev-state-init"
+    expression = join(" && ", [
+      "resource.type == 'storage.googleapis.com/Object'",
+      "resource.name.startsWith('projects/_/buckets/${var.state_bucket}/objects/1-dev/')",
+      "(resource.name.endsWith('/default.tfstate') || resource.name.endsWith('/default.tflock'))",
+      # The PR pipeline itself stores state directly under 1-dev/.
+      "resource.name != 'projects/_/buckets/${var.state_bucket}/objects/1-dev/default.tfstate'",
+      "resource.name != 'projects/_/buckets/${var.state_bucket}/objects/1-dev/default.tflock'",
+    ])
+  }
+}
+
 resource "google_project_iam_custom_role" "state_bucket_iam_reader" {
   project     = var.project_id
   role_id     = "terraformPrPlanStateBucketIamReader"
