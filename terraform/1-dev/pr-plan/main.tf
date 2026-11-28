@@ -125,7 +125,7 @@ resource "google_cloudbuild_trigger" "plan" {
   }
 
   approval_config {
-    approval_required = true
+    approval_required = false
   }
 
   substitutions = {

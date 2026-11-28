@@ -1,6 +1,6 @@
 # Pull Request の Terraform plan と apply
 
-Cloud Build が `main` 宛ての PR の作成・更新を検知します。リポジトリの書き込み権限を持たない投稿者の PR は、書き込み権限を持つユーザーの `/gcbrun` コメントで起動します。Cloud Build Approver がビルドを承認すると plan を実行します。ビルドは PR のコードと Terraform 構成を実行し、後続の apply が使うファイルを書き込むため、承認前に対象コミットとその実行内容をレビューしてください。[Cloud Build の GitHub トリガー](https://docs.cloud.google.com/build/docs/automating-builds/github/build-repos-from-github)
+Cloud Build が `main` 宛ての PR の作成・更新を検知します。リポジトリの書き込み権限を持たない投稿者の PR は、書き込み権限を持つユーザーの `/gcbrun` コメントで起動します。起動したビルドは Cloud Build の承認待ちを挟まずに plan を実行します。ビルドは PR のコードと Terraform 構成を実行し、後続の apply が使うファイルを書き込むため、外部投稿者の PR をコメントで起動する前に対象コミットとその実行内容をレビューしてください。[Cloud Build の GitHub トリガー](https://docs.cloud.google.com/build/docs/automating-builds/github/build-repos-from-github)
 
 ## 導入
 
@@ -17,7 +17,7 @@ Cloud Build が `main` 宛ての PR の作成・更新を検知します。リ�
    | `TF_APPLY_WORKLOAD_IDENTITY_PROVIDER` | Terraform 出力 `workload_identity_provider` |
    | `TF_APPLY_SERVICE_ACCOUNT` | Terraform 出力 `service_account_email` |
 
-6. レビュー担当者に Cloud Build Approver ロールを付与します。後続の PR の対象コミットをレビューしてビルドを承認し、ビルドの成功を確認してからマージします。マージ後は GitHub Actions の結果を確認します。[Cloud Build の承認設定](https://docs.cloud.google.com/build/docs/securing-builds/gate-builds-on-approval)
+6. 後続の PR の対象コミットをレビューし、plan ビルドの成功を確認してからマージします。マージ後は GitHub Actions の結果を確認します。
 
 plan と apply の CI リソースは、既存の GCS state プレフィックス `1-dev` を使います。旧構成で `google_project_service.pipeline` を管理していた場合、バックエンドルートが API を管理下に取り込み、このルートの `removed` ブロックが旧リソースを state から外します。すでに旧 `1-dev/pr-apply` state にリソースを作成している場合は、適用前にそのリソースの state を既存の `1-dev` state に移してください。Terraform リソースのアドレスは同じです。
 
