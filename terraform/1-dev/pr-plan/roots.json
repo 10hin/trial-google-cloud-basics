@@ -2,5 +2,9 @@
   "terraform/1-dev/pr-plan": {
     "depends_on": [],
     "gcs_backend": true
+  },
+  "terraform/1-dev/artifact-repositories": {
+    "depends_on": [],
+    "gcs_backend": true
   }
 }
